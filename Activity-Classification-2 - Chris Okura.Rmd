@@ -1,0 +1,321 @@
+---
+title: "Classification 2"
+author: "Chris Okura"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+--
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(glmnet)
+library(discrim)
+library(klaR)
+```
+
+
+# LDA
+
+```{r, message = FALSE}
+ins <- read_csv("https://www.dropbox.com/s/bocjjyo1ehr5auz/insurance.csv?dl=1")
+
+ins <- ins %>%
+  mutate(
+    smoker = factor(smoker)
+  ) %>%
+  drop_na()
+head(ins)
+```
+
+
+```{r set_mod}
+lda_mod <- discrim_linear() %>%
+  set_engine("MASS") %>%
+  set_mode("classification")
+```
+
+
+```{r}
+lda_fit_1 <- lda_mod %>%
+  fit(smoker ~ charges, data = ins)
+
+lda_fit_1$fit %>% summary()
+```
+
+
+```{r}
+lda_fit_1 
+
+preds <- lda_fit_1 %>% predict(ins)
+
+ins <- ins %>%
+  mutate(
+    pred_smoker = preds$.pred_class
+  )
+
+ins %>%
+  accuracy(truth = smoker,
+           estimate = pred_smoker)
+```
+
+
+```{r}
+lda_fit_2 <- lda_mod %>%
+  fit(smoker ~ charges + age, data = ins)
+
+lda_fit_2
+
+
+preds2 <- lda_fit_2 %>% predict(ins)
+
+ins <- ins %>%
+  mutate(
+    pred_smoker_fit_2 = preds2$.pred_class
+  )
+
+ins %>%
+  accuracy(truth = smoker,
+           estimate = pred_smoker_fit_2)
+```
+
+
+```{r}
+lda_fit_2$fit$scaling
+```
+
+```{r, echo = FALSE}
+ins %>%
+  ggplot(aes(x = charges, y = age, color = smoker)) +
+  geom_point()
+```
+
+```{r}
+lda_fit_2
+
+my_slope = lda_fit_2$fit$scaling[1]/(-1*lda_fit_2$fit$scaling[2])
+```
+
+
+```{r, echo = FALSE}
+
+ins %>%
+  ggplot(aes(x = charges, y = age, color = smoker)) +
+  geom_point() +
+  geom_abline(aes(slope = my_slope, intercept = 0))
+```
+
+#### Your turn:
+
+Find the best LDA model to predict smoker status.
+
+
+
+### Model Specifications
+
+```{r}
+knn_mod <- nearest_neighbor(neighbors = 5) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+logit_mod <- logistic_reg() %>%
+  set_mode("classification") %>%
+  set_engine("glm")
+
+```
+
+Model Recipes
+
+```{r}
+ins_rec_1 <- recipe(smoker ~ charges + age + bmi, data = ins)
+ins_rec_2 <- recipe(smoker ~ charges + age + bmi + sex, data = ins)
+ins_rec_3 <- recipe(smoker ~ charges + age + bmi + sex + region, data = ins)
+
+```
+
+Workflow
+```{r}
+ins_wflow_logit_1 <- workflow() %>%
+  add_recipe(ins_rec_1) %>%
+  add_model(logit_mod)
+
+ins_wflow_logit_2 <- workflow() %>%
+  add_recipe(ins_rec_2) %>%
+  add_model(logit_mod)
+
+ins_wflow_logit_3 <- workflow() %>%
+  add_recipe(ins_rec_3) %>%
+  add_model(logit_mod)
+
+ins_wflow_knn_1 <- workflow() %>%
+  add_recipe(ins_rec_1) %>%
+  add_model(knn_mod)
+
+ins_wflow_knn_2 <- workflow() %>%
+  add_recipe(ins_rec_2) %>%
+  add_model(knn_mod)
+
+ins_wflow_knn_3 <- workflow() %>%
+  add_recipe(ins_rec_3) %>%
+  add_model(knn_mod)
+
+```
+
+
+### Cross Validation of Logistic Model 1
+```{r}
+ins_cvs <- vfold_cv(ins, v = 10)
+log_1_cv <- logit_mod %>%
+  fit_resamples(ins_rec_1, resamples = ins_cvs)
+log_1_cv %>% collect_metrics()
+```
+### Cross Validation of Logistic Model 2
+```{r}
+log_2_cv <- logit_mod %>%
+  fit_resamples(ins_rec_2, resamples = ins_cvs)
+log_2_cv %>% collect_metrics()
+```
+
+
+### Cross Validation of Logistic Model 3
+```{r}
+log_3_cv <- logit_mod %>%
+  fit_resamples(ins_rec_3, resamples = ins_cvs)
+log_3_cv %>% collect_metrics()
+```
+### Cross Validation of KNN Model 1
+```{r}
+knn_1_cv <- knn_mod %>%
+  fit_resamples(ins_rec_1, resamples = ins_cvs)
+knn_1_cv %>% collect_metrics()
+```
+
+### Cross Validation of KNN Model 1
+```{r}
+knn_2_cv <- knn_mod %>%
+  fit_resamples(ins_rec_2, resamples = ins_cvs)
+knn_2_cv %>% collect_metrics()
+```
+
+### Cross Validation of KNN Model 1
+```{r}
+knn_3_cv <- knn_mod %>%
+  fit_resamples(ins_rec_3, resamples = ins_cvs)
+knn_3_cv %>% collect_metrics()
+```
+
+How does it compare to the Logistic Regression and KNN approaches?
+The LDA performs a little bit worse in terms of accuracy compared to the KNN and logistic models. The highest performing model was KNN with n = 5 and explanatory variables charges, age, and bmi. 
+
+### CHECKPOInT
+
+# Quadratic Discriminant Analysis
+
+#### Code from lecture:
+
+```{r qda_mod}
+qda_mod <- discrim_regularized(frac_common_cov = 0) %>% 
+             set_engine('klaR') %>% 
+             set_mode('classification')
+```
+
+```{r, echo = FALSE}
+dat <- tibble(
+  A = rnorm(100, 10, 5),
+  B = rnorm(100, 15, 1)
+) %>%
+  pivot_longer(everything(),
+               values_to = "val",
+               names_to = "Class")
+
+ggplot(dat, aes(x = val, fill = Class)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 11)
+```
+
+
+```{r, echo = FALSE}
+dat <- tibble(
+  V1 = c(rnorm(100, 10, 5), rnorm(100, 37, 18)),
+  V2 = c(rnorm(100, 15, 1), rnorm(100, 30, 9)),
+  Class = factor(c(rep("A", 100), rep("B", 100)))
+) 
+
+dat %>%
+  ggplot(aes(x = V1, y = V2, col = Class)) +
+  geom_point()
+```
+
+
+```{r, echo = FALSE}
+qda_wflow <- workflow() %>%
+  add_recipe(recipe(Class ~ V1 + V2, data = dat)) %>%
+  add_model(qda_mod) %>%
+  fit(dat)
+
+#qda_wflow %>%
+#  horus::viz_decision_boundary(dat)
+```
+
+#### Your turn:
+
+Find the best QDA model to predict smoker status.
+
+```{r}
+
+qda_mod1 <- discrim_regularized(frac_common_cov = 0) %>% 
+             set_engine('klaR') %>% 
+             set_mode('classification')
+
+qda_wflow1 <- workflow() %>%
+  add_recipe(recipe(smoker ~ charges + age + bmi + sex, data = ins)) %>%
+  add_model(qda_mod1) %>%
+  fit(ins)
+
+qda_pred_class <- qda_wflow1 %>% predict(ins)
+
+qda_test1 <- ins %>%
+  mutate(
+    pred_output = qda_pred_class$.pred_class
+  ) 
+ 
+qda_test1 %>%
+  accuracy(truth = smoker,
+           estimate = pred_output)
+
+qda_mod2 <- discrim_regularized(frac_common_cov = 8) %>% 
+             set_engine('klaR') %>% 
+             set_mode('classification')
+
+qda_wflow2 <- workflow() %>%
+  add_recipe(recipe(smoker ~ charges + age + bmi + sex, data = ins)) %>%
+  add_model(qda_mod2) %>%
+  fit(ins)
+
+qda_pred_class <- qda_wflow2 %>% predict(ins)
+
+qda_test2 <- ins %>%
+  mutate(
+    pred_output = qda_pred_class$.pred_class
+  ) 
+ 
+qda_test2 %>%
+  accuracy(truth = smoker,
+           estimate = pred_output)
+
+```
+
+
+
+How does it compare to the LDA, Logistic Regression, and KNN approaches?
+The 
+
+# Metrics
+
+https://yardstick.tidymodels.org/articles/metric-types.html
+
+
+
